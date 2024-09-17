@@ -1,0 +1,93 @@
+#OVERALL GROUP ACTIVITY 
+
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(knitr)
+library(tidyr)
+library(scales)
+library(ggplot2)
+
+# Function for safe data type conversion
+safe_convert <- function(x, target_class) {
+  tryCatch({
+    if (target_class == "POSIXct") {
+      as.POSIXct(x, format = "%Y-%m-%d %H:%M:%S")
+    } else if (target_class == "Date") {
+      as.Date(x)
+    } else {
+      as(x, target_class)
+    }
+  }, error = function(e) {
+    warning(paste("Could not convert column to", target_class, "- keeping original"))
+    x
+  })
+}
+
+# Function to convert columns safely
+convert_columns_safe <- function(df, column_types) {
+  for (col in names(column_types)) {
+    if (col %in% names(df)) {
+      df[[col]] <- safe_convert(df[[col]], column_types[[col]][1])
+    }
+  }
+  return(df)
+}
+
+# Load the datasets
+data1 <- read_excel("/Users/cynthiaugwu/Downloads/global_terrorism_data.xlsx", col_types = "text")
+data2 <- read_excel("/Users/cynthiaugwu/Downloads/gtd_Jan_June.xlsx", col_types = "text")
+
+# Inspect the structure of both datasets
+str(data1)
+str(data2)
+
+# Get the column types from data1
+data1_types <- sapply(data1, class)
+
+# Convert data1 and data2 using the safe conversion method
+data1 <- convert_columns_safe(data1, data1_types)
+data2 <- convert_columns_safe(data2, data1_types)
+
+# Combine the datasets
+combined_data <- rbind(data1, data2)
+
+# Filter data for BLA and Boko Haram
+filtered_data <- combined_data %>%
+  filter(gname %in% c("Baloch Liberation Army (BLA)", "Boko Haram"))
+
+
+# Calculate metrics for each group
+group_metrics <- filtered_data %>%
+  group_by(gname) %>%
+  summarise(
+    `Total number of attacks` = n(),
+    `Time span of activity` = paste(min(iyear), "-", max(iyear), sep=""),
+    `Total fatalities` = sum(as.numeric(as.character(nkill, na.rm = TRUE))
+  )
+
+# Calculate peak year of activity
+peak_year <- filtered_data %>%
+  group_by(gname, iyear) %>%
+  summarise(activity = n() + sum(nkill, na.rm = TRUE)) %>%
+  slice(which.max(activity)) %>%
+  select(gname, peak_year = iyear))
+
+# Combine metrics
+final_metrics <- group_metrics %>%
+  left_join(peak_year, by = "gname") %>%
+  mutate(`Peak year of activity` = peak_year) %>%
+  select(-peak_year)
+
+# Transpose the data for desired output format
+output_data <- final_metrics %>%
+  t() %>%
+  as.data.frame() %>%
+  rownames_to_column("Metric")
+
+# Rename columns
+colnames(output_data) <- c("Metric", "BLA", "Boko Haram")
+
+# Print the formatted table
+print(kable(output_data, format = "pipe", align = c("l", "r", "r")))
