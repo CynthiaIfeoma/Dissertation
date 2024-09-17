@@ -1,0 +1,108 @@
+#figure 1 - ATTACK FREQUENCY 
+
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(knitr)
+library(tidyr)
+library(scales)
+
+# Function for safe data type conversion
+safe_convert <- function(x, target_class) {
+  tryCatch({
+    if (target_class == "POSIXct") {
+      as.POSIXct(x, format = "%Y-%m-%d %H:%M:%S")
+    } else if (target_class == "Date") {
+      as.Date(x)
+    } else {
+      as(x, target_class)
+    }
+  }, error = function(e) {
+    warning(paste("Could not convert column to", target_class, "- keeping original"))
+    x
+  })
+}
+
+# Function to convert columns safely
+convert_columns_safe <- function(df, column_types) {
+  for (col in names(column_types)) {
+    if (col %in% names(df)) {
+      df[[col]] <- safe_convert(df[[col]], column_types[[col]][1])
+    }
+  }
+  return(df)
+}
+
+# Load the datasets
+data1 <- read_excel("/Users/cynthiaugwu/Downloads/global_terrorism_data.xlsx", col_types = "text")
+data2 <- read_excel("/Users/cynthiaugwu/Downloads/gtd_Jan_June.xlsx", col_types = "text")
+
+# Inspect the structure of both datasets
+str(data1)
+str(data2)
+
+# Get the column types from data1
+data1_types <- sapply(data1, class)
+
+# Convert data1 and data2 using the safe conversion method
+data1 <- convert_columns_safe(data1, data1_types)
+data2 <- convert_columns_safe(data2, data1_types)
+
+# Combine the datasets
+combined_data <- rbind(data1, data2)
+
+# Inspect the structure and the first few rows of the combined dataset
+str(combined_data)
+tail(combined_data)
+
+# Filter data for BLA and Boko Haram
+filtered_data <- combined_data %>%
+  filter(gname %in% c("Baloch Liberation Army (BLA)", "Boko Haram"))
+
+#Calculate attack frequency
+yearly_attacks <- combined_data %>%
+  filter(gname %in% c("Baloch Liberation Army (BLA)", "Boko Haram")) %>%
+  group_by(iyear, gname) %>%
+  summarise(attack_count = n(), .groups = "drop") %>%
+  mutate(iyear = as.numeric(iyear))
+
+# View the first few rows of the result
+head(yearly_attacks)
+
+#Create the plot
+ggplot(yearly_attacks, aes(x = iyear, y = attack_count, color = gname, group = gname)) +
+  geom_line(size = 0.5) +
+  geom_point(size = 2) +
+  labs(title = "Attack Count: BLA vs Boko Haram",
+       x = "Year",
+       y = "Number of Attacks",
+       color = "Group") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0, size = 12, face = "bold"),
+    plot.subtitle = element_text(hjust = 0, size = 12),
+    axis.title = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 8, face = "bold"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.title = element_text(face = "bold"),
+    legend.position = "bottom",
+    panel.grid.major = element_line(),
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(t = 20, r = 20, b = 20, l = 20, unit = "pt")
+  ) +
+  scale_x_continuous(breaks = seq(2005, 2021, by = 1), limits = c(2005,2021),
+                     minor_breaks = seq(min(yearly_attacks$iyear), max(yearly_attacks$iyear), by = 1)) +
+  scale_color_manual(values = c("Baloch Liberation Army (BLA)" = "turquoise", "Boko Haram" = "salmon"))
+
+#Print summary statistics
+summary_stats <- yearly_attacks %>%
+  group_by(gname) %>%
+  summarise(
+    total_attacks = sum(attack_count),
+    avg_yearly_attacks = mean(attack_count),
+    max_yearly_attacks = max(attack_count),
+    years_active = n_distinct(iyear)
+  )
+
+print(summary_stats)
