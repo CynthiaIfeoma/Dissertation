@@ -1,0 +1,105 @@
+#figure 3 - INJURY
+# Load required libraries
+library(dplyr)
+library(lubridate)
+library(readxl)
+library(knitr)
+library(tidyr)
+library(scales)
+library(ggplot2)
+
+# Function for safe data type conversion
+safe_convert <- function(x, target_class) {
+  tryCatch({
+    if (target_class == "POSIXct") {
+      as.POSIXct(x, format = "%Y-%m-%d %H:%M:%S")
+    } else if (target_class == "Date") {
+      as.Date(x)
+    } else {
+      as(x, target_class)
+    }
+  }, error = function(e) {
+    warning(paste("Could not convert column to", target_class, "- keeping original"))
+    x
+  })
+}
+
+# Function to convert columns safely
+convert_columns_safe <- function(df, column_types) {
+  for (col in names(column_types)) {
+    if (col %in% names(df)) {
+      df[[col]] <- safe_convert(df[[col]], column_types[[col]][1])
+    }
+  }
+  return(df)
+}
+
+# Load the datasets
+data1 <- read_excel("/Users/cynthiaugwu/Downloads/global_terrorism_data.xlsx", col_types = "text")
+data2 <- read_excel("/Users/cynthiaugwu/Downloads/gtd_Jan_June.xlsx", col_types = "text")
+
+# Inspect the structure of both datasets
+str(data1)
+str(data2)
+
+# Get the column types from data1
+data1_types <- sapply(data1, class)
+
+# Convert data1 and data2 using the safe conversion method
+data1 <- convert_columns_safe(data1, data1_types)
+data2 <- convert_columns_safe(data2, data1_types)
+
+# Combine the datasets
+combined_data <- rbind(data1, data2)
+
+# Add this after combining the datasets
+combined_data <- combined_data %>%
+  mutate(nwound = as.numeric(ifelse(nwound == "" | is.na(nwound), "0", nwound)))
+
+# Filter data for BLA and Boko Haram
+filtered_data <- combined_data %>%
+  filter(gname %in% c("Baloch Liberation Army (BLA)", "Boko Haram"))
+
+# Calculate injury per 100 attacks per year for each group
+injury_rate_data <- filtered_data %>%
+  group_by(gname, iyear) %>%
+  summarize(
+    total_attacks = n(),
+    total_injuries = sum(as.numeric(nwound), na.rm = TRUE),
+    injury_rate_per_100_attacks = (total_injuries / total_attacks) * 100
+  ) %>%
+  ungroup()
+
+# Calculate average injury for each group across all years
+avg_injury_rate <- injury_rate_data %>%
+  group_by(gname) %>%
+  summarize(
+    injury_rate_per_100_attacks = mean(injury_rate_per_100_attacks, na.rm = TRUE),
+    total_attacks_all_years = sum(total_attacks),
+    total_injuries_all_years = sum(total_injuries)
+  ) 
+
+# Print average injury rates
+print("Average injury rates per 100 attacks:")
+print(avg_injury_rate)
+
+# Create the plot
+ggplot(injury_rate_data, aes(x = as.numeric(iyear), y = injury_rate_per_100_attacks, color = gname)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(x = "Year",
+       y = "Injuries per 100 Attacks",
+       color = "Group") +
+  theme(plot.title = element_text(hjust = 0, size = 12, face = "bold"),
+        plot.subtitle = element_text(hjust = 0, size = 10),
+        axis.title = element_text(size = 10, face = "bold"),
+        axis.text = element_text(size = 8, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_text(face = "bold"),
+        legend.position = "bottom",
+        panel.grid.major = element_line(),
+        panel.grid.minor = element_blank(),
+        plot.margin = margin(t = 20, r = 20, b = 20, l = 20, unit = "pt")) +
+        scale_x_continuous(breaks = seq(min(injury_rate_data$iyear), max(injury_rate_data$iyear), by = 1)) +
+        scale_color_manual(values = c("Baloch Liberation Army (BLA)" = "turquoise", "Boko Haram" = "salmon"))
