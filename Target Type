@@ -1,0 +1,90 @@
+#figure 5 - TARGET TYPE
+# Load required libraries
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(gridExtra)
+library(scales)
+library(lubridate)
+library(knitr)
+library(tidyr)
+
+# Function for safe data type conversion
+safe_convert <- function(x, target_class) {
+  tryCatch({
+    if (target_class == "POSIXct") {
+      as.POSIXct(x, format = "%Y-%m-%d %H:%M:%S")
+    } else if (target_class == "Date") {
+      as.Date(x)
+    } else {
+      as(x, target_class)
+    }
+  }, error = function(e) {
+    warning(paste("Could not convert column to", target_class, "- keeping original"))
+    x
+  })
+}
+
+# Function to convert columns safely
+convert_columns_safe <- function(df, column_types) {
+  for (col in names(column_types)) {
+    if (col %in% names(df)) {
+      df[[col]] <- safe_convert(df[[col]], column_types[[col]][1])
+    }
+  }
+  return(df)
+}
+
+# Load the datasets
+data1 <- read_excel("/Users/cynthiaugwu/Downloads/global_terrorism_data.xlsx", col_types = "text")
+data2 <- read_excel("/Users/cynthiaugwu/Downloads/gtd_Jan_June.xlsx", col_types = "text")
+
+# Inspect the structure of both datasets
+str(data1)
+str(data2)
+
+# Get the column types from data1
+data1_types <- sapply(data1, class)
+
+# Convert data1 and data2 using the safe conversion method
+data1 <- convert_columns_safe(data1, data1_types)
+data2 <- convert_columns_safe(data2, data1_types)
+
+# Combine the datasets
+combined_data <- rbind(data1, data2)
+
+# Filter data for Baloch Liberation Army and Boko Haram
+target_groups <- c("Baloch Liberation Army (BLA)", "Boko Haram")
+filtered_data <- data %>%
+  filter(gname %in% target_groups)
+
+
+# Calculate frequency distribution
+freq_table <- filtered_data %>%
+  group_by(gname, targtype1_txt) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(gname) %>%
+  mutate(percentage = count / sum(count) * 100) %>%
+  arrange(gname, desc(count))
+
+# Reshape the table to have groups as columns
+freq_table_wide <- freq_table %>%
+  select(gname, targtype1_txt, count, percentage) %>%
+  pivot_wider(
+    names_from = gname,
+    values_from = c(count, percentage),
+    values_fill = list(count = 0, percentage = 0)
+  ) %>%
+  arrange(desc(`count_Baloch Liberation Army (BLA)` + `count_Boko Haram`))
+
+# Format the percentages
+freq_table_wide <- freq_table_wide %>%
+  mutate(across(starts_with("percentage"), ~sprintf("%.1f%%", .)))
+
+# Rename columns for better readability
+colnames(freq_table_wide) <- c("Target Type", 
+                               "BLA Count", "Boko Haram Count", 
+                               "BLA %", "Boko Haram %")
+
+# Print the frequency table
+print(kable(freq_table_wide, format = "markdown", align = c('l', 'r', 'r', 'r', 'r')))
